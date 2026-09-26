@@ -20,6 +20,7 @@ KEYMAP="${KEYMAP:-la-latin1}"
 INSTALAR_CACHYOS="${INSTALAR_CACHYOS:-si}"   # repos + kernel + settings de CachyOS
 AUTOLOGIN="${AUTOLOGIN:-si}"                 # entrar directo al escritorio
 ASSUME_YES="${ASSUME_YES:-no}"               # "si" salta la confirmación de borrado
+RESUME="${RESUME:-no}"                       # "si" retoma en el chroot con /mnt ya montado
 
 PAQUETES_BASE=(base linux linux-firmware base-devel git sudo nano vim
                networkmanager grub efibootmgr btrfs-progs bash-completion)
@@ -37,6 +38,21 @@ ok()    { echo "${C_VERDE} ✔ $*${C_0}"; }
 aviso() { echo "${C_AMAR} ! $*${C_0}"; }
 die()   { echo "${C_ROJO} ✘ $*${C_0}" >&2; exit 1; }
 trap 'die "Falló la línea $LINENO. Revisa install.log"' ERR
+
+# Reintenta un comando hasta 5 veces (redes lentas / mirrors caídos)
+reintentar() {
+  local n=0
+  until "$@"; do
+    n=$((n+1)); [[ $n -ge 5 ]] && return 1
+    aviso "Falló, reintentando ($n/5)..."; sleep 5
+  done
+}
+# Sin timeout de descarga y con pocas descargas en paralelo
+ajustar_pacman() {
+  local conf="${1:-/etc/pacman.conf}"
+  grep -q '^DisableDownloadTimeout' "$conf" || sed -i '/^\[options\]/a DisableDownloadTimeout' "$conf"
+  sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 3/' "$conf"
+}
 
 # Sufijo de partición: /dev/sda -> sda1 ; /dev/nvme0n1 -> nvme0n1p1
 part() { [[ "$DISCO" =~ [0-9]$ ]] && echo "${DISCO}p$1" || echo "${DISCO}$1"; }
@@ -63,20 +79,24 @@ EOF
 
   paso "6.2 Usuarios y sudo"
   echo "root:$PASS_ROOT" | chpasswd
-  useradd -m -G wheel -s /bin/bash "$USUARIO"
+  id "$USUARIO" >/dev/null 2>&1 || useradd -m -G wheel -s /bin/bash "$USUARIO"
   echo "$USUARIO:$PASS_USUARIO" | chpasswd
   sed -i 's/^# \(%wheel ALL=(ALL:ALL) ALL\)/\1/' /etc/sudoers
   ok "Usuario $USUARIO creado"
 
   paso "6.3 Repositorios y kernel de CachyOS"
+  ajustar_pacman
   if [[ "$INSTALAR_CACHYOS" == "si" ]]; then
     (
       set +e
       cd /tmp
-      curl -fsSLO https://mirror.cachyos.org/cachyos-repo.tar.xz \
-        && tar xf cachyos-repo.tar.xz && cd cachyos-repo \
-        && yes | ./cachyos-repo.sh \
-        && pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}"
+      if ! grep -q '^\[cachyos' /etc/pacman.conf; then
+        curl -fsSLO https://mirror.cachyos.org/cachyos-repo.tar.xz \
+          && tar xf cachyos-repo.tar.xz && cd cachyos-repo \
+          && yes | ./cachyos-repo.sh
+      fi \
+        && ajustar_pacman \
+        && reintentar pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}"
     ) && ok "CachyOS instalado (repos, kernel, settings)" \
       || aviso "CachyOS no se pudo agregar; se continúa con Arch + kernel estándar"
   else
@@ -84,7 +104,8 @@ EOF
   fi
 
   paso "6.4 Escritorio KDE Plasma (X11) + utilidades VirtualBox"
-  pacman -S --noconfirm --needed "${PAQUETES_KDE[@]}"
+  ajustar_pacman
+  reintentar pacman -S --noconfirm --needed "${PAQUETES_KDE[@]}"
   systemctl enable NetworkManager sddm vboxservice
   mkdir -p /etc/sddm.conf.d
   if [[ "$AUTOLOGIN" == "si" ]]; then
@@ -109,6 +130,10 @@ fi
 # ═════════════════════════════ PARTE EN LA ISO EN VIVO ═════════════════════════
 exec > >(tee -a install.log) 2>&1
 
+if [[ "$RESUME" == "si" ]]; then
+  mountpoint -q /mnt || die "RESUME=si requiere el sistema montado en /mnt"
+  aviso "Retomando: se omiten las etapas 1 a 5"
+else
 paso "1/7 Verificaciones"
 [[ $EUID -eq 0 ]]             || die "Ejecuta como root"
 [[ -d /sys/firmware/efi ]]    || die "No arrancó en UEFI: activa EFI en la VM"
@@ -149,12 +174,14 @@ mount "$(part 1)" /mnt/boot
 ok "Sistema montado en /mnt"; lsblk "$DISCO"
 
 paso "4/7 Instalando sistema base (pacstrap)"
-pacstrap -K /mnt "${PAQUETES_BASE[@]}"
+ajustar_pacman
+reintentar pacstrap -K /mnt "${PAQUETES_BASE[@]}"
 ok "Base instalada"
 
 paso "5/7 Generando fstab"
 genfstab -U /mnt >> /mnt/etc/fstab
 cat /mnt/etc/fstab
+fi
 
 paso "6/7 Configuración dentro del sistema nuevo (chroot)"
 cat > /mnt/root/vars.env <<EOF
