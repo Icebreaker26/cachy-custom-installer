@@ -88,18 +88,30 @@ EOF
   paso "6.3 Repositorios y kernel de CachyOS"
   ajustar_pacman
   if [[ "$INSTALAR_CACHYOS" == "si" ]]; then
-    (
-      set +e +o pipefail   # 'yes | script' devuelve 141 (SIGPIPE) con pipefail y cortaba la cadena
+    # Todo lo que ocurre aquí se guarda en /root/cachyos-setup.log y, si falla, se muestra el final
+    if (
+      set +e +o pipefail   # con pipefail, 'yes | script' devuelve 141 (SIGPIPE)
       cd /tmp
       if ! grep -q '^\[cachyos' /etc/pacman.conf; then
-        curl -fsSLO https://mirror.cachyos.org/cachyos-repo.tar.xz \
-          && tar xf cachyos-repo.tar.xz && cd cachyos-repo \
-          && printf 'y\ny\ny\n' | ./cachyos-repo.sh
-      fi \
-        && ajustar_pacman \
-        && reintentar pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}"
-    ) && ok "CachyOS instalado (repos, kernel, settings)" \
-      || aviso "CachyOS no se pudo agregar; se continúa con Arch + kernel estándar"
+        echo ">> Descargando el script de repos de CachyOS"
+        curl -fsSLO https://mirror.cachyos.org/cachyos-repo.tar.xz || { echo "!! falló la descarga del script de repos"; exit 1; }
+        tar xf cachyos-repo.tar.xz && cd cachyos-repo || { echo "!! falló al extraer el script de repos"; exit 1; }
+        yes | ./cachyos-repo.sh
+        echo ">> cachyos-repo.sh terminó con código $?"
+      fi
+      grep -q '^\[cachyos' /etc/pacman.conf || { echo "!! /etc/pacman.conf no tiene los repos [cachyos]"; exit 1; }
+      ajustar_pacman
+      echo ">> Sincronizando bases de datos"
+      reintentar pacman -Sy --noconfirm || exit 1
+      echo ">> Instalando kernel y ajustes de CachyOS"
+      reintentar pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}"
+    ) 2>&1 | tee /root/cachyos-setup.log; then
+      ok "CachyOS instalado (repos, kernel, settings)"
+    else
+      aviso "CachyOS no se pudo agregar; se continúa con Arch + kernel estándar"
+      aviso "Últimas líneas de /root/cachyos-setup.log:"
+      tail -n 25 /root/cachyos-setup.log || true
+    fi
   else
     aviso "INSTALAR_CACHYOS=no, se omite"
   fi
