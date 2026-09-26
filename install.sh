@@ -17,6 +17,7 @@ PASS_ROOT="${PASS_ROOT:-root123}"
 ZONA_HORARIA="${ZONA_HORARIA:-America/Bogota}"
 LOCALE="${LOCALE:-es_CO.UTF-8}"
 KEYMAP="${KEYMAP:-la-latin1}"
+XKB_LAYOUT="${XKB_LAYOUT:-latam}"            # teclado en KDE/X11
 INSTALAR_CACHYOS="${INSTALAR_CACHYOS:-si}"   # repos + kernel + settings de CachyOS
 AUTOLOGIN="${AUTOLOGIN:-si}"                 # entrar directo al escritorio
 ASSUME_YES="${ASSUME_YES:-no}"               # "si" salta la confirmación de borrado
@@ -113,6 +114,14 @@ EOF
   else
     printf '[General]\nSession=plasmax11\n' > /etc/sddm.conf.d/10-session.conf
   fi
+  mkdir -p /etc/X11/xorg.conf.d
+  cat > /etc/X11/xorg.conf.d/00-keyboard.conf <<XKB
+Section "InputClass"
+    Identifier "teclado"
+    MatchIsKeyboard "on"
+    Option "XkbLayout" "$XKB_LAYOUT"
+EndSection
+XKB
   if command -v fish >/dev/null; then chsh -s /usr/bin/fish "$USUARIO"; fi
   ok "KDE Plasma configurado"
 
@@ -192,6 +201,7 @@ PASS_ROOT='$PASS_ROOT'
 ZONA_HORARIA='$ZONA_HORARIA'
 LOCALE='$LOCALE'
 KEYMAP='$KEYMAP'
+XKB_LAYOUT='$XKB_LAYOUT'
 INSTALAR_CACHYOS='$INSTALAR_CACHYOS'
 AUTOLOGIN='$AUTOLOGIN'
 DISCO='$DISCO'
