@@ -89,12 +89,15 @@ EOF
   ajustar_pacman
   if [[ "$INSTALAR_CACHYOS" == "si" ]]; then
     (
-      set +e
+      set +e +o pipefail   # 'yes | script' devuelve 141 (SIGPIPE) con pipefail y cortaba la cadena
       cd /tmp
       if ! grep -q '^\[cachyos' /etc/pacman.conf; then
         curl -fsSLO https://mirror.cachyos.org/cachyos-repo.tar.xz \
           && tar xf cachyos-repo.tar.xz && cd cachyos-repo \
-          && yes | ./cachyos-repo.sh
+          && printf 'y
+y
+y
+' | ./cachyos-repo.sh
       fi \
         && ajustar_pacman \
         && reintentar pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}"
