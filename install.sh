@@ -94,10 +94,7 @@ EOF
       if ! grep -q '^\[cachyos' /etc/pacman.conf; then
         curl -fsSLO https://mirror.cachyos.org/cachyos-repo.tar.xz \
           && tar xf cachyos-repo.tar.xz && cd cachyos-repo \
-          && printf 'y
-y
-y
-' | ./cachyos-repo.sh
+          && printf 'y\ny\ny\n' | ./cachyos-repo.sh
       fi \
         && ajustar_pacman \
         && reintentar pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}"
