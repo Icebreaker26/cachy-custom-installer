@@ -7,6 +7,7 @@
 #          6 chroot (config, CachyOS, KDE, GRUB) · 7 finalizar
 # =============================================================================
 set -Eeuo pipefail
+VERSION_SCRIPT="2026-09-26 · cachyos con log y reintentos"   # se imprime al inicio para saber qué copia estás ejecutando
 
 # ─────────────────────────── CONFIGURACIÓN (editar) ───────────────────────────
 DISCO="${DISCO:-/dev/sda}"
@@ -96,15 +97,21 @@ EOF
         echo ">> Descargando el script de repos de CachyOS"
         curl -fsSLO https://mirror.cachyos.org/cachyos-repo.tar.xz || { echo "!! falló la descarga del script de repos"; exit 1; }
         tar xf cachyos-repo.tar.xz && cd cachyos-repo || { echo "!! falló al extraer el script de repos"; exit 1; }
-        yes | ./cachyos-repo.sh
-        echo ">> cachyos-repo.sh terminó con código $?"
+        echo ">> Nivel de CPU que ve el sistema:"; /lib/ld-linux-x86-64.so.2 --help 2>/dev/null | grep -E 'x86-64-v[234]' || true
+        for intento in 1 2 3; do
+          yes | ./cachyos-repo.sh
+          echo ">> cachyos-repo.sh (intento $intento) terminó con código $?"
+          grep -q '^\[cachyos' /etc/pacman.conf && break
+          sleep 10
+        done
       fi
       grep -q '^\[cachyos' /etc/pacman.conf || { echo "!! /etc/pacman.conf no tiene los repos [cachyos]"; exit 1; }
       ajustar_pacman
       echo ">> Sincronizando bases de datos"
       reintentar pacman -Sy --noconfirm || exit 1
       echo ">> Instalando kernel y ajustes de CachyOS"
-      reintentar pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}"
+      reintentar pacman -S --noconfirm --needed "${PAQUETES_CACHY[@]}" || exit 1
+      pacman -Q linux-cachyos || { echo "!! linux-cachyos no quedó instalado"; exit 1; }
     ) 2>&1 | tee /root/cachyos-setup.log; then
       ok "CachyOS instalado (repos, kernel, settings)"
     else
@@ -150,6 +157,7 @@ fi
 
 # ═════════════════════════════ PARTE EN LA ISO EN VIVO ═════════════════════════
 exec > >(tee -a install.log) 2>&1
+echo "install.sh · versión $VERSION_SCRIPT"
 
 if [[ "$RESUME" == "si" ]]; then
   mountpoint -q /mnt || die "RESUME=si requiere el sistema montado en /mnt"
@@ -225,6 +233,7 @@ arch-chroot /mnt bash /root/install.sh --chroot
 rm -f /mnt/root/vars.env /mnt/root/install.sh
 
 paso "7/7 Finalizando"
+cp -f install.log /mnt/root/install.log 2>/dev/null || true   # el log de la ISO se pierde al reiniciar
 umount -R /mnt
 ok "Instalación completa. Saca la ISO de la VM y reinicia."
 read -rp "¿Reiniciar ahora? [s/N] " r
