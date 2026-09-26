@@ -22,7 +22,7 @@ Script de instalación personalizada y automatizada de un sistema estilo **Cachy
 Desde la ISO en vivo, como root:
 
 ```bash
-curl -O https://raw.githubusercontent.com/<usuario>/cachy-custom-installer/main/install.sh
+curl -O https://raw.githubusercontent.com/Icebreaker26/cachy-custom-installer/main/install.sh
 bash install.sh
 ```
 
